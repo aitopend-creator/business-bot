@@ -1,113 +1,151 @@
-<script type="module">
-  import { CreateWebWorkerMLCEngine } from "https://esm.sh/@mlc-ai/web-llm";
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Website Concierge</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#f6f7fb; }
+    .wrap { max-width: 780px; margin: 0 auto; padding: 16px 16px 100px; }
+    .card { background: #fff; border:1px solid #e6e8f0; border-radius:12px; padding:16px; }
+    .row { display:flex; gap:12px; margin-top:12px; }
+    .msg { padding:10px 12px; border-radius:10px; max-width: 85%; line-height:1.35 }
+    .bot { background:#f0f3ff; border:1px solid #d9defb }
+    .you { background:#eef7f0; border:1px solid #cfe8d4; margin-left:auto }
+    .cta { margin-top:14px }
+    button, a.btn { cursor:pointer; border:0; padding:10px 14px; border-radius:10px; background:#1f60ff; color:#fff; text-decoration:none }
+    textarea { width:100%; height:80px; padding:10px; border:1px solid #cbd5e1; border-radius:10px }
+    .muted { color:#556; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>Website Concierge</h2>
+      <p class="muted">Hi! I can answer questions and help you book an appointment.</p>
+      
+      <div id="thread"></div>
 
-  const statusEl = document.getElementById('status');
-  const sendBtn  = document.getElementById('send');
-  const promptEl = document.getElementById('prompt');
-  const threadEl = document.getElementById('thread');
+      <!-- BOOK NOW BUTTON: put your Google Form link in the href below -->
+      <div class="cta">
+        <a class="btn" target="_blank" href="https://docs.google.com/forms/d/e/1FAIpQLScgtbP4B5ZH3aMnvnEqfxcdvWS923OWQk2SpjyX5WFBbKqzPA/viewform?usp=header">Book now</a>
+      </div>
 
-  // 0) Browser check
-  if (!('gpu' in navigator)) {
-    statusEl.textContent = "Your browser doesn't have WebGPU. Use Chrome/Edge (latest).";
-  }
+      <div class="row">
+        <textarea id="prompt" placeholder="Type your question…"></textarea>
+        <button id="send">Send</button>
+      </div>
+      <p class="muted" id="status">Loading AI in your browser…</p>
+    </div>
+  </div>
 
-  // 1) Choose a smaller, faster model
-  // Good starter that loads quicker on most laptops/phones:
-  const model = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
+  <!-- AI logic -->
+  <script type="module">
+    import { CreateWebWorkerMLCEngine } from "https://esm.sh/@mlc-ai/web-llm";
 
-  // 2) Show load progress
-  function progress(p) {
-    const pct = Math.round((p.progress || 0) * 100);
-    statusEl.textContent = p.text ? `${p.text} (${pct}%)` : `Loading model… (${pct}%)`;
-  }
+    const statusEl = document.getElementById('status');
+    const sendBtn  = document.getElementById('send');
+    const promptEl = document.getElementById('prompt');
+    const threadEl = document.getElementById('thread');
 
-  let engine;
-  try {
-    engine = await CreateWebWorkerMLCEngine(
-      { model },
-      {
-        initProgressCallback: progress,
-        worker: new Worker("https://esm.sh/@mlc-ai/web-llm/dist/worker.js", { type: "module" })
-      }
-    );
-    statusEl.textContent = "AI ready. Ask me anything!";
-  } catch (e) {
-    console.error(e);
-    statusEl.textContent = "Failed to load AI. Try Chrome/Edge (latest), then hard refresh.";
-  }
-
-  // Conversation with a system prompt that pushes to book
-  const messages = [{
-    role: "system",
-    content:
-      "You are a friendly website receptionist. Always: 1) Answer briefly, " +
-      "2) Ask one qualifying follow-up, 3) Offer the 'Book now' button on the page, " +
-      "4) Be cautious with specifics; invite them to book for details."
-  }];
-
-  function addMsg(role, text) {
-    const div = document.createElement('div');
-    div.className = 'row';
-    const bubble = document.createElement('div');
-    bubble.className = 'msg ' + (role === 'user' ? 'you' : 'bot');
-    bubble.textContent = text;
-    div.appendChild(bubble);
-    threadEl.appendChild(div);
-    threadEl.scrollTop = threadEl.scrollHeight;
-  }
-
-  addMsg('assistant', 'Welcome! How can I help you today?');
-
-  async function ask() {
-    const userText = promptEl.value.trim();
-    if (!userText || !engine) return;
-    promptEl.value = "";
-    addMsg('user', userText);
-
-    messages.push({ role: "user", content: userText });
-    sendBtn.disabled = true; statusEl.textContent = "Thinking…";
-
-    try {
-      let reply = "";
-      const stream = await engine.chat.completions.create({
-        stream: true,
-        messages
-      });
-
-      // live stream
-      let temp;
-      for await (const chunk of stream) {
-        const delta = chunk.choices?.[0]?.delta?.content || "";
-        if (!delta) continue;
-        reply += delta;
-        if (!temp) {
-          temp = document.createElement('div');
-          temp.className = 'row';
-          const bubble = document.createElement('div');
-          bubble.className = 'msg bot';
-          bubble.textContent = '';
-          temp.appendChild(bubble);
-          threadEl.appendChild(temp);
-        }
-        temp.querySelector('.msg').textContent = reply;
-        threadEl.scrollTop = threadEl.scrollHeight;
-      }
-
-      if (temp) temp.remove();
-      addMsg('assistant', reply || "(no text)");
-      messages.push({ role: "assistant", content: reply || "" });
-      statusEl.textContent = "Ready.";
-    } catch (err) {
-      console.error(err);
-      statusEl.textContent = "Error generating reply. Try again.";
-      addMsg('assistant', "Sorry—had a hiccup. Please ask again!");
-    } finally {
-      sendBtn.disabled = false;
+    if (!('gpu' in navigator)) {
+      statusEl.textContent = "Your browser doesn't have WebGPU. Use Chrome/Edge (latest).";
     }
-  }
 
-  sendBtn.onclick = ask;
-  promptEl.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
-  });
-</script>
+    const model = "Phi-3-mini-4k-instruct-q4f16_1-MLC";
+
+    function progress(p) {
+      const pct = Math.round((p.progress || 0) * 100);
+      statusEl.textContent = p.text ? `${p.text} (${pct}%)` : `Loading model… (${pct}%)`;
+    }
+
+    let engine;
+    try {
+      engine = await CreateWebWorkerMLCEngine(
+        { model },
+        {
+          initProgressCallback: progress,
+          worker: new Worker("https://esm.sh/@mlc-ai/web-llm/dist/worker.js", { type: "module" })
+        }
+      );
+      statusEl.textContent = "AI ready. Ask me anything!";
+    } catch (e) {
+      console.error(e);
+      statusEl.textContent = "Failed to load AI. Try Chrome/Edge (latest), then hard refresh.";
+    }
+
+    const messages = [{
+      role: "system",
+      content:
+        "You are a friendly website receptionist. Always: 1) Answer briefly, " +
+        "2) Ask one qualifying follow-up, 3) Offer the 'Book now' button on the page, " +
+        "4) Be cautious with specifics; invite them to book for details."
+    }];
+
+    function addMsg(role, text) {
+      const div = document.createElement('div');
+      div.className = 'row';
+      const bubble = document.createElement('div');
+      bubble.className = 'msg ' + (role === 'user' ? 'you' : 'bot');
+      bubble.textContent = text;
+      div.appendChild(bubble);
+      threadEl.appendChild(div);
+      threadEl.scrollTop = threadEl.scrollHeight;
+    }
+
+    addMsg('assistant', 'Welcome! How can I help you today?');
+
+    async function ask() {
+      const userText = promptEl.value.trim();
+      if (!userText || !engine) return;
+      promptEl.value = "";
+      addMsg('user', userText);
+
+      messages.push({ role: "user", content: userText });
+      sendBtn.disabled = true; statusEl.textContent = "Thinking…";
+
+      try {
+        let reply = "";
+        const stream = await engine.chat.completions.create({
+          stream: true,
+          messages
+        });
+
+        let temp;
+        for await (const chunk of stream) {
+          const delta = chunk.choices?.[0]?.delta?.content || "";
+          if (!delta) continue;
+          reply += delta;
+          if (!temp) {
+            temp = document.createElement('div');
+            temp.className = 'row';
+            const bubble = document.createElement('div');
+            bubble.className = 'msg bot';
+            bubble.textContent = '';
+            temp.appendChild(bubble);
+            threadEl.appendChild(temp);
+          }
+          temp.querySelector('.msg').textContent = reply;
+          threadEl.scrollTop = threadEl.scrollHeight;
+        }
+
+        if (temp) temp.remove();
+        addMsg('assistant', reply || "(no text)");
+        messages.push({ role: "assistant", content: reply || "" });
+        statusEl.textContent = "Ready.";
+      } catch (err) {
+        console.error(err);
+        statusEl.textContent = "Error generating reply. Try again.";
+        addMsg('assistant', "Sorry—had a hiccup. Please ask again!");
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    sendBtn.onclick = ask;
+    promptEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+    });
+  </script>
+</body>
+</html>
