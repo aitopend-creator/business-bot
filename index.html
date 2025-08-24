@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Website Concierge</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#f6f7fb; }
+    .wrap { max-width: 780px; margin: 0 auto; padding: 16px 16px 100px; }
+    .card { background: #fff; border:1px solid #e6e8f0; border-radius:12px; padding:16px; }
+    .row { display:flex; gap:12px; margin-top:12px; }
+    .msg { padding:10px 12px; border-radius:10px; max-width: 85%; line-height:1.35 }
+    .bot { background:#f0f3ff; border:1px solid #d9defb }
+    .you { background:#eef7f0; border:1px solid #cfe8d4; margin-left:auto }
+    .cta { margin-top:14px }
+    button, a.btn { cursor:pointer; border:0; padding:10px 14px; border-radius:10px; background:#1f60ff; color:#fff; text-decoration:none }
+    textarea { width:100%; height:80px; padding:10px; border:1px solid #cbd5e1; border-radius:10px }
+    .muted { color:#556; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h2>Website Concierge</h2>
+      <p class="muted">Hi! I can answer questions and help you book an appointment. (Powered by a private, in-browser AI—no data leaves your device.)</p>
+      <div id="thread"></div>
+      <div class="cta">
+        <a class="btn" target="_blank" href="YOUR_GOOGLE_FORM_LINK">Book now</a>
+      </div>
+      <div class="row">
+        <textarea id="prompt" placeholder="Type your question…"></textarea>
+        <button id="send">Send</button>
+      </div>
+      <p class="muted" id="status">Loading AI in your browser… first reply may take ~10–20s on older devices.</p>
+    </div>
+  </div>
+
+  <!-- WebLLM (browser LLM). We load the worker and then create an engine instance. -->
+  <script type="module">
+    // Minimal WebLLM boot (uses their hosted worker + a small model)
+    import { CreateWebWorkerMLCEngine } from "https://esm.run/@mlc-ai/web-llm";
+
+    const statusEl = document.getElementById('status');
+    const sendBtn  = document.getElementById('send');
+    const promptEl = document.getElementById('prompt');
+    const threadEl = document.getElementById('thread');
+
+    // 1) Pick a small, fast model so most laptops/phones can run it.
+    const model = "Llama-3-8B-Instruct-q4f16_1-MLC"; // works in-browser; if slow, later try a smaller variant.
+
+    // 2) Create the worker/engine
+    const engine = await CreateWebWorkerMLCEngine(
+      { model },
+      { worker: new Worker("https://esm.run/@mlc-ai/web-llm/dist/worker.js", { type: "module" }) }
+    );
+
+    statusEl.textContent = "AI ready. Ask me anything!";
+
+    // Conversation with a system prompt that forces lead capture
+    const messages = [{
+      role: "system",
+      content:
+        "You are a friendly website receptionist. Always: 1) Answer briefly, 2) Ask 1 follow-up to qualify the visitor, " +
+        "3) Offer a clear next step with a link labelled 'Book now' (already on the page), " +
+        "4) If asked for pricing/hours/location, give a reasonable default and say it can be confirmed on the booking call, " +
+        "5) Never make up specifics—be helpful but concise."
+    }];
+
+    function addMsg(role, text) {
+      const div = document.createElement('div');
+      div.className = 'row';
+      const bubble = document.createElement('div');
+      bubble.className = 'msg ' + (role === 'user' ? 'you' : 'bot');
+      bubble.textContent = text;
+      div.appendChild(bubble);
+      threadEl.appendChild(div);
+      threadEl.scrollTop = threadEl.scrollHeight;
+    }
+
+    addMsg('assistant', 'Welcome! How can I help you today?');
+
+    async function ask() {
+      const userText = promptEl.value.trim();
+      if (!userText) return;
+      promptEl.value = "";
+      addMsg('user', userText);
+
+      messages.push({ role: "user", content: userText });
+      sendBtn.disabled = true; statusEl.textContent = "Thinking…";
+
+      // Stream a response token by token
+      let reply = "";
+      const stream = await engine.chat.completions.create({
+        stream: true,
+        messages
+      });
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices?.[0]?.delta?.content || "";
+        if (delta) {
+          reply += delta;
+          if (!document.getElementById('temp')) {
+            const div = document.createElement('div');
+            div.id = 'temp';
+            div.className = 'row';
+            const bubble = document.createElement('div');
+            bubble.className = 'msg bot';
+            bubble.textContent = '';
+            div.appendChild(bubble);
+            threadEl.appendChild(div);
+          }
+          document.querySelector('#temp .msg').textContent = reply;
+          threadEl.scrollTop = threadEl.scrollHeight;
+        }
+      }
+      // finalize message
+      const temp = document.getElementById('temp');
+      if (temp) temp.remove();
+      addMsg('assistant', reply);
+      messages.push({ role: "assistant", content: reply });
+
+      sendBtn.disabled = false; statusEl.textContent = "Ready.";
+    }
+
+    sendBtn.onclick = ask;
+    promptEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); }
+    });
+  </script>
+</body>
+</html>
